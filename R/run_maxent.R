@@ -128,20 +128,9 @@ run_maxent_java <- function() {
     if (!requireNamespace("rJava", quietly = TRUE)) {
         stop("Package 'rJava' is required. Install it with install.packages('rJava').")
     }
-    if (!requireNamespace("terra", quietly = TRUE)) {
-        stop("Package 'terra' is required. Install it with install.packages('terra').")
-    }
 
     paths <- mock_raster_paths()
     occ   <- mock_occurrences()
-
-    # Load rasters with terra, convert to raster for dismo compatibility
-    r1 <- terra::rast(paths["bio1"])
-    r2 <- terra::rast(paths["bio2"])
-
-    env_stack <- terra::rast(list(r1, r2))
-    names(env_stack) <- c("bio1", "bio2")
-
     occ_coords <- occ[, c("lon", "lat")]
 
     # Run Java Maxent via dismo (requires maxent.jar in the dismo java folder)
@@ -152,7 +141,7 @@ run_maxent_java <- function() {
              " and place it in the dismo java folder.")
     }
 
-    # Convert to raster (dismo still uses raster package)
+    # Load rasters with raster for dismo compatibility
     if (!requireNamespace("raster", quietly = TRUE)) {
         stop("Package 'raster' is required. Install it with install.packages('raster').")
     }
