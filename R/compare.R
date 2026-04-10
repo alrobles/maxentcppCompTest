@@ -18,7 +18,8 @@
 #'     \item{spearman_cor}{Spearman rank correlation.}
 #'     \item{max_abs_diff_rank}{Maximum absolute difference of rank-normalized
 #'       predictions (values in [0, 1]).}
-#'     \item{n}{Length of the prediction vectors.}
+#'     \item{n}{Number of non-missing paired predictions used in the
+#'       comparison.}
 #'     \item{agreement}{Logical: \code{TRUE} if Spearman correlation is
 #'       at least \code{cor_threshold}.}
 #'   }
@@ -40,7 +41,14 @@ compare_maxent_predictions <- function(cpp_preds,
         stop("cpp_preds and java_preds must have the same length.")
     }
 
+    valid <- stats::complete.cases(cpp_preds, java_preds)
+    cpp_preds <- cpp_preds[valid]
+    java_preds <- java_preds[valid]
     n <- length(cpp_preds)
+
+    if (n < 2) {
+        stop("Need at least 2 non-missing paired predictions to compare.")
+    }
 
     pearson_cor  <- stats::cor(cpp_preds, java_preds, method = "pearson")
     spearman_cor <- stats::cor(cpp_preds, java_preds, method = "spearman")
