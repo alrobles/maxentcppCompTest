@@ -201,3 +201,52 @@ same cells as more or less suitable, the comparison passes.
   <https://CRAN.R-project.org/package=dismo>
 * Harold, E. R. (1999). `com.macfaq.io` Java I/O utilities.
   Bundled in the original Maxent source (see `inst/java/`).
+
+---
+
+### Phase 7 — Function-Level Side-by-Side Tests (Linear Features + Cloglog) ✅
+
+Implements a 22-test battery comparing every critical computation in the
+**linear-features + cloglog output** pipeline between the Java (`MaxentMini`)
+and C++ (`maxentcpp`) implementations.
+
+- [x] `R/java_bridge.R` — rJava bridge to call Java MaxentMini directly
+  (`ensure_java_maxent`, `java_linear_feature_eval`, `java_sample_expectation`,
+  `java_sample_deviation`, `java_good_alpha`, `java_reduce_alpha`,
+  `java_get_initial_loss`, `java_featured_space_train`,
+  `java_train_n_iterations`, `java_get_density`, `java_get_sample_expectations`,
+  `java_cloglog_transform`)
+- [x] `R/swd_bridge.R` — SWD format conversion (`mock_to_swd`, `swd_to_features`)
+- [x] `inst/java/MaxentMini.java` — self-contained Java implementation of the
+  full goodAlpha-based MaxEnt optimizer (mirrors `density/Sequential.java` +
+  `density/FeaturedSpace.java` from `alrobles/Maxent`)
+- [x] `inst/java/build.sh` — compile script; produces `maxent_mini.jar`
+- [x] `tests/testthat/helper-java-bridge.R` — `skip_if_no_java()`, shared
+  fixtures (`make_mock_fixture()`, `.make_cpp_fs()`), data readers
+- [x] `tests/testthat/test-linear-features.R` — Tests 1–4: linear feature
+  normalization `(val - min) / (max - min)` for all 100 background points,
+  edge cases, and three-way agreement at tolerance 1e-14
+- [x] `tests/testthat/test-sample-stats.R` — Tests 5–7: sample expectations,
+  sample deviations (population std dev), and regularization betas compared
+  to manual R calculations at tolerance 1e-10
+- [x] `tests/testthat/test-optimizer.R` — Tests 8–14: initial loss, per-iteration
+  loss (1 and 10 iterations), final loss and entropy after convergence, lambda
+  values, goodAlpha formula, reduceAlpha schedule
+- [x] `tests/testthat/test-density.R` — Tests 15–17: normalized density weights
+  (all 100 cells), Spearman correlation ≥ 0.99, Shannon entropy after training
+- [x] `tests/testthat/test-cloglog.R` — Tests 18–22: formula verification,
+  range [0,1], monotonicity, three-way R/Java/C++ agreement at 1e-10,
+  end-to-end pipeline at tolerance 1e-6
+
+#### Tolerance tiers
+
+| Level | Tolerance | Applies to |
+|-------|-----------|------------|
+| Arithmetic | 1e-14 | Feature normalization formula (pure math) |
+| Statistical | 1e-10 | Sample expectations, deviations, betas |
+| Trained | 1e-8 | Loss, density, entropy after optimization |
+| End-to-end | 1e-6 | Full-pipeline cloglog predictions |
+
+All tests carry `skip_if_no_java()` and (where applicable)
+`skip_if_not_installed("maxentcpp")` guards so the package continues to pass
+`R CMD CHECK` without Java or maxentcpp installed.

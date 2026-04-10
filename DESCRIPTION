@@ -12,9 +12,11 @@ Description: A testing package that compares the outputs of the C++ MaxEnt
     example with predefined environmental layers and 10 occurrence records
     to validate that both implementations produce equivalent results.
 License: MIT + file LICENSE
+SystemRequirements: Java (>= 8)
 Imports:
     stats,
-    terra
+    terra,
+    utils
 Suggests:
     testthat (>= 3.0.0),
     maxentcpp,

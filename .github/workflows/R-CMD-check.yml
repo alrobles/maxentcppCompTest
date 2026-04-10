@@ -33,11 +33,24 @@ jobs:
 
       - uses: r-lib/actions/setup-pandoc@v2
 
+      - name: Set up Java JDK 11
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+
       - uses: r-lib/actions/setup-r@v2
         with:
           r-version: ${{ matrix.config.r }}
           http-user-agent: ${{ matrix.config.http-user-agent }}
           use-public-rspm: true
+
+      - name: Install rJava system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y r-cran-rjava || true
+          sudo R CMD javareconf || true
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
@@ -46,7 +59,12 @@ jobs:
             any::remotes
             any::terra
             any::testthat
+            any::rJava
           needs: check
+
+      - name: Compile MaxentMini JAR
+        run: bash inst/java/build.sh
+        continue-on-error: true
 
       - name: Install maxentcpp from GitHub
         run: |
