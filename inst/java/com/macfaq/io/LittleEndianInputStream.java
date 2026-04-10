@@ -1,8 +1,14 @@
 /*
  * @(#)LittleEndianInputStream.java  1.0.3 02/12/28
- * 
+ *
+ * Third-party source from the com.macfaq.io package.
  * Copyright 1998, 1999, 2002 Elliotte Rusty Harold
- *  
+ *
+ * This file is not relicensed by local package licensing alone.
+ * When redistributing this source or binaries built from it, include
+ * the original upstream com.macfaq.io license/NOTICE text with the
+ * distribution so the applicable third-party redistribution terms are
+ * preserved.
  */
 
 package com.macfaq.io;
