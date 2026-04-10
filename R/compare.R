@@ -10,7 +10,7 @@
 #' @param java_preds Numeric vector of predictions from the Java implementation.
 #'   Must have the same length as \code{cpp_preds}.
 #' @param cor_threshold Minimum acceptable Spearman rank correlation
-#'   (default 0.95). Used only when called from tests.
+#'   (default 0.95) used to determine the returned \code{agreement} flag.
 #'
 #' @return A named list with:
 #'   \describe{
