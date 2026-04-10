@@ -1,8 +1,13 @@
 /*
  * @(#)LittleEndianOutputStream.java  1.0.1 99/05/19
- * 
- * Copyright 1998, 1999 Elliotte Rusty Harold
- *  
+ *
+ * Third-party bundled source for package com.macfaq.io.
+ * Original work:
+ *   Copyright 1998, 1999 Elliotte Rusty Harold
+ *
+ * Redistribution of this file as part of this package must include the
+ * accompanying upstream license/NOTICE terms provided with the package
+ * distribution for the bundled com.macfaq.io sources.
  */
 
 package com.macfaq.io;
