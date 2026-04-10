@@ -30,8 +30,11 @@ run_maxentcpp <- function(max_iter       = 500L,
                           convergence    = 1e-5,
                           beta_multiplier = 1.0) {
     if (!requireNamespace("maxentcpp", quietly = TRUE)) {
-        stop("Package 'maxentcpp' is required. ",
-             "Install it from github::alrobles/Maxent/R-package.")
+        stop(
+            "Package 'maxentcpp' is required. ",
+            "Install it with remotes::install_github(",
+            "'alrobles/Maxent', subdir = 'R-package')."
+        )
     }
 
     paths <- mock_raster_paths()
