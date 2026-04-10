@@ -109,7 +109,7 @@ public class LittleEndianInputStream extends FilterInputStream implements DataIn
    */
   public void readFully(byte[] b) throws IOException {
 
-    throw new UnsupportedOperationException("readFully(byte[], int, int) is currently not supported by LittleEndianInputStream");
+    throw new UnsupportedOperationException("readFully(byte[]) is currently not supported by LittleEndianInputStream");
   }
 
   /**
