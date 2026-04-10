@@ -1,0 +1,26 @@
+Package: maxentcppCompTest
+Type: Package
+Title: Comparison Tests for maxentcpp and Maxent Outputs
+Version: 0.1.0
+Date: 2026-04-10
+Authors@R: c(
+    person("alrobles", role = c("aut", "cre"),
+           email = "alrobles@example.com"))
+Description: A testing package that compares the outputs of the C++ MaxEnt
+    implementation (maxentcpp, from alrobles/Maxent R-package) against the
+    original Java-based Maxent (via dismo). Uses a mock 10-by-10 raster
+    example with predefined environmental layers and 10 occurrence records
+    to validate that both implementations produce equivalent results.
+License: MIT + file LICENSE
+Imports:
+    stats,
+    terra
+Suggests:
+    testthat (>= 3.0.0),
+    maxentcpp,
+    dismo,
+    raster,
+    rJava
+Config/testthat/edition: 3
+RoxygenNote: 7.2.3
+Encoding: UTF-8
