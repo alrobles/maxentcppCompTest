@@ -45,6 +45,9 @@ compare_maxent_predictions <- function(cpp_preds,
     cpp_preds <- cpp_preds[valid]
     java_preds <- java_preds[valid]
     n <- length(cpp_preds)
+    if (n < 2) {
+        stop("cpp_preds and java_preds must contain at least 2 values.")
+    }
 
     if (n < 2) {
         stop("Need at least 2 non-missing paired predictions to compare.")
