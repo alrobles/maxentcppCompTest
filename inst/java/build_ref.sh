@@ -66,7 +66,10 @@ echo "Compiling $(wc -l < "$SRC_LIST") Java files ..."
 # -sourcepath lets javac resolve subpackages such as density.tools.* that are
 # referenced from Runner.java but not enumerated in $SRC_LIST.
 MAXENT_ROOT="$(dirname "$MAXENT_SRC")"
-javac -Xlint:none -sourcepath "$MAXENT_ROOT" \
+# --release 11 keeps the resulting bytecode loadable by JDK 11 runtimes
+# (CI currently provisions temurin 11).  The real Maxent source is
+# Java 8-era code, so it compiles cleanly against the 11 platform API.
+javac --release 11 -Xlint:none -sourcepath "$MAXENT_ROOT" \
       -d "$CLASS_DIR" "@$SRC_LIST" 2> "$CLASS_DIR/.javac.log" || true
 
 # Pre-existing compile errors in Extractor.java (double[] vs float[]) are
