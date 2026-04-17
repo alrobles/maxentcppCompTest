@@ -52,6 +52,10 @@ jobs:
           sudo apt-get install -y r-cran-rjava || true
           sudo R CMD javareconf || true
 
+      # maxentcpp is listed in DESCRIPTION's Suggests but is not on CRAN
+      # (it lives at alrobles/Maxent, subdir R-package).  Declare the
+      # source to pak directly so the dependency resolution step doesn't
+      # fail with "Can't find package called maxentcpp".
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           extra-packages: |
@@ -60,18 +64,11 @@ jobs:
             any::terra
             any::testthat
             any::rJava
+            github::alrobles/Maxent/R-package
           needs: check
 
       - name: Compile MaxentMini JAR
         run: bash inst/java/build.sh
-        continue-on-error: true
-
-      - name: Install maxentcpp from GitHub
-        run: |
-          remotes::install_github("alrobles/Maxent",
-                                  subdir     = "R-package",
-                                  build_vignettes = FALSE)
-        shell: Rscript {0}
         continue-on-error: true
 
       - uses: r-lib/actions/check-r-package@v2
