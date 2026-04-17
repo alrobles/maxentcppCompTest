@@ -459,6 +459,122 @@ public class MaxentRefRunner {
                / (double) (thr[i] - thr[i - 1]);
     }
 
+    /**
+     * Piecewise-linear autoSetBeta for linear + quadratic + product
+     * (the product-on schedule in Runner.autoSetBeta at
+     *  density/Runner.java:2256-2258).  At n=10 samples this returns
+     *  exactly 1.6 — the Phase D.2 product-on beta_lqp.
+     */
+    static double interpolateLqpProductBeta(int numSamples) {
+        int[]    thr   = {   0,   10,   17,    30,  100 };
+        double[] betas = { 2.6,  1.6,  0.9,  0.55, 0.05 };
+        int i;
+        for (i = 0; i < thr.length; i++) if (numSamples <= thr[i]) break;
+        if (i == 0)             return betas[0];
+        if (i == thr.length)    return betas[thr.length - 1];
+        return betas[i - 1]
+             + (betas[i] - betas[i - 1])
+               * (numSamples - thr[i - 1])
+               / (double) (thr[i] - thr[i - 1]);
+    }
+
+    /**
+     * Phase D.2 — linear + quadratic + product trajectory on the 2-variable
+     * asymmetric raster stack.
+     *
+     * Builds 5 features in the order used by the companion C++ test
+     * test_sequential_lqp.cpp (per-variable L+Q then a single cross-term
+     * product appended at the end):
+     *
+     *   0: bio1          (LinearFeature over the ScaledVec for bio1)
+     *   1: bio1^2        (SquareFeature  over the ScaledVec for bio1)
+     *   2: bio2          (LinearFeature over the ScaledVec for bio2)
+     *   3: bio2^2        (SquareFeature  over the ScaledVec for bio2)
+     *   4: bio1*bio2     (ProductFeature of the two ScaledVecs,
+     *                     mirroring Runner.java:2184-2188 where
+     *                     ProductFeature is created from already-scaled cont[]
+     *                     features with i &lt; j)
+     *
+     * Per Runner.java feature-order convention the "real" pipeline would
+     * emit {lf0, lf1, sqf0, sqf1, pf01} (per-type-then-per-variable), but
+     * the feature indices in Sequential are order-independent as long as
+     * both Java and C++ agree on the indexing.  The C++ side embeds the
+     * golden in the same order emitted here.
+     *
+     * Uses the Java Runner.autoSetBeta product-on schedule
+     *   thresholds = {   0,   10,   17,    30,  100 }
+     *   betas      = { 2.6,  1.6,  0.9,  0.55, 0.05 }
+     * (density/Runner.java:2256-2258), so beta_lqp = 1.6 at n=10 — applied
+     * uniformly to linear, quadratic AND product features.  ProductFeature
+     * is not a BinaryFeature / ThrGeneratorFeature / HingeGeneratorFeature
+     * so it falls through to the beta_lqp branch in autoSetBeta
+     * (density/Runner.java:2291-2299).
+     *
+     * Same TrajectorySequential override as {@link #runTrajectoryFlat} —
+     * convergence-based early termination is disabled so the trajectory
+     * is deterministic regardless of loss flatness.
+     */
+    public static double[] runTrajectoryFlatLQP(double[] feat0, double[] feat1,
+                                                int[] sampleIdx,
+                                                double betaMultiplier,
+                                                int[] checkpoints) {
+        int[] cps = checkpoints.clone();
+        java.util.Arrays.sort(cps);
+        int maxIter = cps[cps.length - 1];
+
+        double[] v0 = prescale(feat0);
+        double[] v1 = prescale(feat1);
+
+        ScaledVec sv0 = new ScaledVec(v0, "bio1");
+        ScaledVec sv1 = new ScaledVec(v1, "bio2");
+
+        LinearFeature  lf0  = new LinearFeature (sv0, "bio1");
+        SquareFeature  sqf0 = new SquareFeature (sv0, "bio1");
+        LinearFeature  lf1  = new LinearFeature (sv1, "bio2");
+        SquareFeature  sqf1 = new SquareFeature (sv1, "bio2");
+        ProductFeature pf01 = new ProductFeature(sv0, "bio1", sv1, "bio2");
+
+        double autoBeta = interpolateLqpProductBeta(sampleIdx.length);
+        double scaled   = autoBeta * betaMultiplier;
+        lf0 .setBeta(scaled);
+        sqf0.setBeta(scaled);
+        lf1 .setBeta(scaled);
+        sqf1.setBeta(scaled);
+        pf01.setBeta(scaled);
+
+        Sample[] samples = new Sample[sampleIdx.length];
+        for (int k = 0; k < sampleIdx.length; k++)
+            samples[k] = new Sample(sampleIdx[k], 0, 0, 0.0, 0.0, "sp1");
+
+        Params params = new Params();
+        params.setBetamultiplier(betaMultiplier);
+        params.setMaximumiterations(maxIter);
+        params.setConvergencethreshold(0.0);
+        params.setAutofeature(false);
+        params.setLinear(true);
+        params.setQuadratic(true);
+        params.setProduct(true);
+        params.setThreshold(false);
+        params.setHinge(false);
+
+        Feature[] feats = new Feature[] { lf0, sqf0, lf1, sqf1, pf01 };
+        FeaturedSpace        fsLocal = new FeaturedSpace(samples, feats, params);
+        TrajectorySequential tseq    = new TrajectorySequential(
+                                         fsLocal, params, cps);
+        tseq.run();
+
+        int stride = 2 + tseq.numFeatures;
+        double[] out = new double[cps.length * stride];
+        for (int i = 0; i < cps.length; i++) {
+            int base        = i * stride;
+            out[base]       = tseq.lossBuf[i];
+            out[base + 1]   = tseq.entropyBuf[i];
+            for (int j = 0; j < tseq.numFeatures; j++)
+                out[base + 2 + j] = tseq.lambdaBuf[i][j];
+        }
+        return out;
+    }
+
     /* ------------------------------------------------------------------
      * Golden-CSV generator (CLI entry point).
      *
@@ -560,6 +676,12 @@ public class MaxentRefRunner {
         double[] trajLQ = runTrajectoryFlatLQ(v1, v2, idx, 1.0, cps);
         writeTrajectoryCsv(new File(od, "trajectory_java_lq.csv"),
                            cps, trajLQ, 4);
+
+        // Phase D.2 trajectory: linear + quadratic + product (5 features)
+        // using the product-on beta_lqp schedule (Runner.java:2256-2258).
+        double[] trajLQP = runTrajectoryFlatLQP(v1, v2, idx, 1.0, cps);
+        writeTrajectoryCsv(new File(od, "trajectory_java_lqp.csv"),
+                           cps, trajLQP, 5);
 
         System.out.println("MaxentRefRunner: golden outputs written to "
                            + od.getAbsolutePath());
