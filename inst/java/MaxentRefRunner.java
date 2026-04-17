@@ -373,13 +373,14 @@ public class MaxentRefRunner {
     private static double ascXll, ascYll, ascCell;
 
     public static void main(String[] args) throws Exception {
-        if (args.length < 3) {
+        boolean miniMode = args.length > 0 && args[0].equals("--mini");
+        int     base     = miniMode ? 1 : 0;
+        int     minArgs  = base + 3;
+        if (args.length < minArgs) {
             System.err.println("Usage: density.MaxentRefRunner "
                              + "[--mini] bio1.asc bio2.asc occurrences.csv [outDir]");
             System.exit(2);
         }
-        boolean miniMode = args.length > 0 && args[0].equals("--mini");
-        int     base     = miniMode ? 1 : 0;
         String bio1Path  = args[base];
         String bio2Path  = args[base + 1];
         String occPath   = args[base + 2];
