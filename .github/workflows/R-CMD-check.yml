@@ -52,26 +52,24 @@ jobs:
           sudo apt-get install -y r-cran-rjava || true
           sudo R CMD javareconf || true
 
+      # DESCRIPTION's Suggests lists maxentcpp / dismo / raster which are
+      # either not on CRAN or intentionally optional.  Install only the
+      # hard dependency graph (Depends / Imports / LinkingTo) and then
+      # list every package the check really needs explicitly, so pak
+      # never tries to resolve the optional ones.  Tests that require
+      # a missing suggested package already call skip_if_not_installed().
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
+          dependencies: '"hard"'
           extra-packages: |
             any::rcmdcheck
             any::remotes
             any::terra
             any::testthat
             any::rJava
-          needs: check
 
       - name: Compile MaxentMini JAR
         run: bash inst/java/build.sh
-        continue-on-error: true
-
-      - name: Install maxentcpp from GitHub
-        run: |
-          remotes::install_github("alrobles/Maxent",
-                                  subdir     = "R-package",
-                                  build_vignettes = FALSE)
-        shell: Rscript {0}
         continue-on-error: true
 
       - uses: r-lib/actions/check-r-package@v2
