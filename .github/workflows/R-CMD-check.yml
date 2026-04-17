@@ -64,7 +64,7 @@ jobs:
             any::terra
             any::testthat
             any::rJava
-            github::alrobles/Maxent/R-package
+            github::alrobles/maxentcpp
           needs: check
 
       - name: Compile MaxentMini JAR
