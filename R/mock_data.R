@@ -34,7 +34,7 @@ mock_raster_paths <- function() {
 mock_occurrences <- function() {
     csv_path <- system.file("extdata", "occurrences.csv",
                             package = "maxentcppCompTest")
-    read.csv(csv_path, stringsAsFactors = FALSE)
+    utils::read.csv(csv_path, stringsAsFactors = FALSE)
 }
 
 #' Paths to the Asymmetric Mock Raster Files (Phase B)
@@ -64,5 +64,5 @@ mock_raster_paths_asym <- function() {
 mock_occurrences_asym <- function() {
     csv_path <- system.file("extdata", "asym", "occurrences.csv",
                             package = "maxentcppCompTest")
-    read.csv(csv_path, stringsAsFactors = FALSE)
+    utils::read.csv(csv_path, stringsAsFactors = FALSE)
 }
