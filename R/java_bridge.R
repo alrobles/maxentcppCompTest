@@ -576,3 +576,57 @@ java_ref_feature_stats <- function(handle) {
                                                         "getFeatureNames"))
     )
 }
+
+#' Reference Per-Iteration Trajectory (real Java Sequential)
+#'
+#' Runs \code{density.Sequential} via \code{density.MaxentRefRunner} and
+#' snapshots \code{(loss, entropy, lambda_0, ..., lambda_{k-1})} at each
+#' requested iteration number.  Convergence-based early termination is
+#' suppressed so the trajectory always extends to \code{max(checkpoints)}.
+#'
+#' Phase B of the maxentcpp fidelity plan (issues #36 / #37) uses this
+#' helper together with the C++ trajectory binary
+#' (\code{inst/cpp/trajectory_cpp.cpp}) and the MaxentMini
+#' \code{trainNIterations} path to compute per-iteration
+#' \code{||\\lambda_cpp - \\lambda_java||_\\infty} and friends on the
+#' mock fixture.
+#'
+#' @param bio1_vec        Numeric vector of raw bio1 values (length n).
+#' @param bio2_vec        Numeric vector of raw bio2 values (length n).
+#' @param sample_indices  Integer vector of 0-based occurrence indices.
+#' @param beta_multiplier Regularization multiplier (default 1.0).
+#' @param checkpoints     Integer vector of 1-based iteration numbers.
+#' @return Data frame with columns \code{iteration, loss, entropy,
+#'   lambda_0, lambda_1} in the order requested.
+#' @export
+java_ref_trajectory <- function(bio1_vec, bio2_vec, sample_indices,
+                                beta_multiplier = 1.0,
+                                checkpoints = c(1L, 2L, 3L, 5L, 10L,
+                                                20L, 50L, 100L,
+                                                200L, 500L)) {
+    cps <- sort(as.integer(checkpoints))
+    flat <- rJava::.jcall(
+        "density/MaxentRefRunner",
+        "[D",
+        "runTrajectoryFlat",
+        as.double(bio1_vec),
+        as.double(bio2_vec),
+        as.integer(sample_indices),
+        as.double(beta_multiplier),
+        cps
+    )
+    flat <- as.numeric(flat)
+    # We hardcode 2 features to match MaxentRefRunner's 2-feature API; the
+    # caller-supplied bio1/bio2 vectors define that invariant and the
+    # Phase B fixtures all have 2 features.
+    stride <- 2L + 2L
+    m <- matrix(flat, nrow = length(cps), ncol = stride, byrow = TRUE)
+    data.frame(
+        iteration = cps,
+        loss      = m[, 1],
+        entropy   = m[, 2],
+        lambda_0  = m[, 3],
+        lambda_1  = m[, 4],
+        stringsAsFactors = FALSE
+    )
+}

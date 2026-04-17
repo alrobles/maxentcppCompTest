@@ -1,0 +1,13 @@
+quantity,value
+loss,3.1709389280031206
+unregularized_loss,2.9190137572298682
+l1_reg,0.25192517077325250
+gain,1.4342312579849712
+entropy,3.1709389279274080
+density_normalizer,5.5723502341713940
+linear_predictor_normalizer,9.8930501506494690
+beta_multiplier,1.0000000000000000
+auto_beta_lqp,1.0000000000000000
+iterations,80
+num_features,2
+num_points,100

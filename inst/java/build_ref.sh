@@ -51,6 +51,13 @@ trap 'rm -f "$SRC_LIST"' EXIT
 find "$MAXENT_SRC" -maxdepth 1 -name '*.java' \
     | grep -Ev "$EXCLUDE_REGEX" > "$SRC_LIST"
 echo "$SRC_FILE" >> "$SRC_LIST"
+# MaxentMini is in package `density` alongside the real classes and the Phase B
+# --mini trajectory entry point calls into it; include its source so that a
+# single `maxent_ref.jar` contains both oracles.
+MINI_SRC="$SCRIPT_DIR/MaxentMini.java"
+if [ -f "$MINI_SRC" ]; then
+    echo "$MINI_SRC" >> "$SRC_LIST"
+fi
 
 echo "Compiling $(wc -l < "$SRC_LIST") Java files ..."
 # -Xlint:none silences the many deprecation warnings in the original source.
