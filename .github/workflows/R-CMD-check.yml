@@ -52,20 +52,21 @@ jobs:
           sudo apt-get install -y r-cran-rjava || true
           sudo R CMD javareconf || true
 
-      # maxentcpp is listed in DESCRIPTION's Suggests but is not on CRAN
-      # (it lives at alrobles/Maxent, subdir R-package).  Declare the
-      # source to pak directly so the dependency resolution step doesn't
-      # fail with "Can't find package called maxentcpp".
+      # DESCRIPTION's Suggests lists maxentcpp / dismo / raster which are
+      # either not on CRAN or intentionally optional.  Install only the
+      # hard dependency graph (Depends / Imports / LinkingTo) and then
+      # list every package the check really needs explicitly, so pak
+      # never tries to resolve the optional ones.  Tests that require
+      # a missing suggested package already call skip_if_not_installed().
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
+          dependencies: '"hard"'
           extra-packages: |
             any::rcmdcheck
             any::remotes
             any::terra
             any::testthat
             any::rJava
-            github::alrobles/maxentcpp
-          needs: check
 
       - name: Compile MaxentMini JAR
         run: bash inst/java/build.sh
