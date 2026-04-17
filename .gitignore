@@ -9,5 +9,6 @@ src/*.so
 src/*.dll
 *.tar.gz
 inst/doc/
-# Java intermediate build artifacts (JAR itself is committed)
+# Java intermediate build artifacts (JARs themselves are committed)
 inst/java/classes/
+inst/java/classes_ref/

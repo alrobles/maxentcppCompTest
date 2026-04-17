@@ -36,6 +36,38 @@ skip_if_no_java <- function() {
     }
 }
 
+# ---- Reference oracle (MaxentRefRunner) init, cached per session -----------
+
+.java_maxent_ref_initialized <- local({
+    result <- NULL
+    function() {
+        if (is.null(result)) {
+            result <<- tryCatch(
+                maxentcppCompTest::ensure_java_maxent_ref(),
+                error = function(e) FALSE
+            )
+        }
+        result
+    }
+})
+
+#' Skip a Test if the Reference Java Maxent Oracle is Unavailable
+#'
+#' Skips the current test unless \code{maxent_ref.jar} can be loaded.
+#' The JAR depends on the \code{alrobles/Maxent} source tree (cloned
+#' next to this repository or pointed to via \code{MAXENT_SRC}).
+skip_if_no_java_ref <- function() {
+    if (!requireNamespace("rJava", quietly = TRUE)) {
+        testthat::skip("rJava not installed")
+    }
+    if (!.java_maxent_ref_initialized()) {
+        testthat::skip(
+            "MaxentRefRunner JAR not available ",
+            "(run inst/java/build_ref.sh after cloning alrobles/Maxent)"
+        )
+    }
+}
+
 # ---- Shared data helpers ---------------------------------------------------
 
 #' Read the Mock bio1 Vector
