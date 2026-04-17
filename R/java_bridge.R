@@ -381,3 +381,198 @@ java_cloglog_transform <- function(raw_values, entropy) {
     )
     as.numeric(result)
 }
+
+# ===========================================================================
+# Reference oracle (MaxentRefRunner) -- Phase A of maxentcpp #36/#37
+# ---------------------------------------------------------------------------
+# The helpers below drive the **real** Java Maxent 3.4.4 `density.Sequential`
+# optimizer via `density.MaxentRefRunner`, compiled against the unmodified
+# `alrobles/Maxent/density/*.java` source tree.  They parallel the
+# `java_*()` surface above (which still exercises the simplified
+# `MaxentMini` goodAlpha-only optimizer) so callers can compare the two
+# oracles directly on the same inputs.
+# ===========================================================================
+
+#' Ensure the Reference Java Maxent JAR is Available
+#'
+#' Locates \code{maxent_ref.jar} in \code{inst/java/}.  If missing, attempts
+#' to build it by invoking \code{inst/java/build_ref.sh}, which compiles
+#' \code{MaxentRefRunner.java} against the unmodified \code{density/*.java}
+#' source tree from \code{alrobles/Maxent} (default location:
+#' \code{<pkgdir>/../../Maxent/density}; override with the
+#' \code{MAXENT_SRC} environment variable).
+#'
+#' Must be called before any \code{java_ref_*()} helper.  Idempotent.
+#'
+#' @return Logical: \code{TRUE} if the reference JAR is loaded and the JVM
+#'   is ready, \code{FALSE} otherwise.
+#' @export
+ensure_java_maxent_ref <- function() {
+    if (!requireNamespace("rJava", quietly = TRUE)) {
+        message("rJava is not installed. Install it with install.packages('rJava').")
+        return(FALSE)
+    }
+
+    java_dir <- system.file("java", package = "maxentcppCompTest")
+    if (!nzchar(java_dir)) {
+        message("Cannot locate inst/java/ directory in package 'maxentcppCompTest'.")
+        return(FALSE)
+    }
+
+    jar_path <- file.path(java_dir, "maxent_ref.jar")
+
+    if (!file.exists(jar_path)) {
+        build_sh <- file.path(java_dir, "build_ref.sh")
+        if (!file.exists(build_sh)) {
+            message("maxent_ref.jar and build_ref.sh are both missing from ",
+                    java_dir)
+            return(FALSE)
+        }
+        message("maxent_ref.jar not found — attempting to build ",
+                "against alrobles/Maxent source tree ...")
+        ok <- tryCatch({
+            status <- system2("bash", args = build_sh,
+                              stdout = TRUE, stderr = TRUE)
+            file.exists(jar_path)
+        }, error = function(e) {
+            message("Compilation error: ", conditionMessage(e))
+            FALSE
+        })
+        if (!isTRUE(ok)) {
+            message("Could not build maxent_ref.jar. ",
+                    "Run inst/java/build_ref.sh manually after cloning ",
+                    "alrobles/Maxent next to this repo ",
+                    "(or set MAXENT_SRC=/path/to/Maxent/density).")
+            return(FALSE)
+        }
+    }
+
+    tryCatch({
+        rJava::.jinit()
+        rJava::.jaddClassPath(jar_path)
+        TRUE
+    }, error = function(e) {
+        message("JVM initialization failed: ", conditionMessage(e))
+        FALSE
+    })
+}
+
+#' Run the Reference Java Maxent Pipeline
+#'
+#' Instantiates a \code{density.MaxentRefRunner}, which wires two linear
+#' features (\code{bio1_vec}, \code{bio2_vec}, pre-scaled internally) and
+#' the supplied sample indices through the real \code{density.FeaturedSpace}
+#' and \code{density.Sequential} optimizer.  Returns the underlying Java
+#' handle together with the final scalar diagnostics.
+#'
+#' @param bio1_vec        Numeric vector of raw bio1 values (length n).
+#' @param bio2_vec        Numeric vector of raw bio2 values (length n).
+#' @param sample_indices  Integer vector of 0-based background indices of
+#'   occurrence points.
+#' @param beta_multiplier Regularization multiplier (default 1.0).
+#' @param max_iter        Maximum optimizer iterations (default 500).
+#' @param convergence     Convergence threshold (default 1e-5).
+#' @return Named list with fields \code{handle} (the \code{jobjRef}),
+#'   \code{loss}, \code{entropy}, \code{gain}, \code{iterations},
+#'   \code{num_features}, \code{num_points}, \code{lambdas}.
+#' @export
+java_ref_run <- function(bio1_vec, bio2_vec, sample_indices,
+                         beta_multiplier = 1.0,
+                         max_iter = 500L, convergence = 1e-5) {
+    handle <- rJava::.jnew(
+        "density/MaxentRefRunner",
+        as.double(bio1_vec),
+        as.double(bio2_vec),
+        as.integer(sample_indices),
+        as.double(beta_multiplier),
+        as.integer(max_iter),
+        as.double(convergence)
+    )
+    list(
+        handle       = handle,
+        loss         = rJava::.jcall(handle, "D", "getLoss"),
+        entropy      = rJava::.jcall(handle, "D", "getEntropy"),
+        gain         = rJava::.jcall(handle, "D", "getGain"),
+        iterations   = rJava::.jcall(handle, "I", "getIterations"),
+        num_features = rJava::.jcall(handle, "I", "getNumFeatures"),
+        num_points   = rJava::.jcall(handle, "I", "getNumPoints"),
+        lambdas      = as.numeric(rJava::.jcall(handle, "[D", "getLambdas"))
+    )
+}
+
+#' Reference Lambdas
+#' @param handle A \code{jobjRef} returned by \code{java_ref_run()$handle}.
+#' @return Numeric vector of feature weights.
+#' @export
+java_ref_lambdas <- function(handle) {
+    as.numeric(rJava::.jcall(handle, "[D", "getLambdas"))
+}
+
+#' Reference Unnormalized Density
+#' @inheritParams java_ref_lambdas
+#' @return Numeric vector of length \code{n_points} containing
+#'   \code{exp(LP[i] - LPN)} (not yet divided by the density normalizer).
+#' @export
+java_ref_density <- function(handle) {
+    as.numeric(rJava::.jcall(handle, "[D", "getDensity"))
+}
+
+#' Reference Raw Output (normalized density)
+#' @inheritParams java_ref_lambdas
+#' @return Numeric vector summing to 1 (up to roundoff).
+#' @export
+java_ref_raw <- function(handle) {
+    as.numeric(rJava::.jcall(handle, "[D", "getRaw"))
+}
+
+#' Reference Cloglog Output (Java formula)
+#' @inheritParams java_ref_lambdas
+#' @return Numeric vector of \code{1 - exp(-raw * exp(entropy))} values.
+#' @export
+java_ref_cloglog <- function(handle) {
+    as.numeric(rJava::.jcall(handle, "[D", "getCloglogJava"))
+}
+
+#' Reference Scalar Diagnostics
+#' @inheritParams java_ref_lambdas
+#' @return Named list with loss, unregularized_loss, l1_reg, gain, entropy,
+#'   density_normalizer, linear_predictor_normalizer, beta_multiplier,
+#'   auto_beta_lqp, iterations, num_features, num_points.
+#' @export
+java_ref_scalars <- function(handle) {
+    list(
+        loss                        = rJava::.jcall(handle, "D", "getLoss"),
+        unregularized_loss          = rJava::.jcall(handle, "D", "getUnregularizedLoss"),
+        l1_reg                      = rJava::.jcall(handle, "D", "getL1Reg"),
+        gain                        = rJava::.jcall(handle, "D", "getGain"),
+        entropy                     = rJava::.jcall(handle, "D", "getEntropy"),
+        density_normalizer          = rJava::.jcall(handle, "D", "getDensityNormalizer"),
+        linear_predictor_normalizer = rJava::.jcall(handle, "D", "getLinearPredictorNormalizer"),
+        beta_multiplier             = rJava::.jcall(handle, "D", "getBetaMultiplier"),
+        auto_beta_lqp               = rJava::.jcall(handle, "D", "getAutoBetaLqp"),
+        iterations                  = rJava::.jcall(handle, "I", "getIterations"),
+        num_features                = rJava::.jcall(handle, "I", "getNumFeatures"),
+        num_points                  = rJava::.jcall(handle, "I", "getNumPoints")
+    )
+}
+
+#' Reference Sample Expectations / Deviations / Betas
+#' @inheritParams java_ref_lambdas
+#' @return Named list: \code{expectation}, \code{sample_expectation},
+#'   \code{sample_deviation}, \code{beta}, \code{feature_names}.
+#' @export
+java_ref_feature_stats <- function(handle) {
+    list(
+        expectation        = as.numeric(rJava::.jcall(handle, "[D",
+                                                      "getExpectations")),
+        sample_expectation = as.numeric(rJava::.jcall(handle, "[D",
+                                                      "getSampleExpectations")),
+        sample_deviation   = as.numeric(rJava::.jcall(handle, "[D",
+                                                      "getSampleDeviations")),
+        beta               = as.numeric(rJava::.jcall(handle, "[D",
+                                                      "getBetas")),
+        feature_names      = as.character(rJava::.jcall(handle,
+                                                        "[Ljava/lang/String;",
+                                                        "getFeatureNames"))
+    )
+}
