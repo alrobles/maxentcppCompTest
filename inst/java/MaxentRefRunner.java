@@ -185,6 +185,139 @@ public class MaxentRefRunner {
     public double getAutoBetaLqp()        { return autoBetaLqp; }
 
     /* ------------------------------------------------------------------
+     * Trajectory capture (Phase B — quantify the C++ vs real-Java gap).
+     *
+     * A subclass of `density.Sequential` that snapshots
+     *     (loss, entropy, lambda_0, ..., lambda_{k-1})
+     * after each iteration in a caller-supplied `checkpoints` list.
+     * Overrides `terminationTest` to (a) record snapshots and (b)
+     * disable the convergence-based early exit so the optimizer always
+     * runs to `max(checkpoints)` iterations. The unmodified `Sequential`
+     * semantics (deltaLossBound feature selection, newtonStep +
+     * searchAlpha for continuous features, doParallelUpdate every 10
+     * iterations, undo on loss violation) are preserved because
+     * `terminationTest` only affects the `break` clause.
+     * ------------------------------------------------------------------ */
+    private static final class TrajectorySequential extends Sequential {
+        final int[]    checkpoints;   // sorted ascending, 1-based iterations
+        final int      numFeatures;
+        final double[] lossBuf;
+        final double[] entropyBuf;
+        final double[][] lambdaBuf;   // [checkpoint][feature]
+        int   cpIdx = 0;
+
+        TrajectorySequential(FeaturedSpace X, Params params, int[] cps) {
+            super(X, params);
+            this.checkpoints = cps;
+            this.numFeatures = X.numFeatures;
+            this.lossBuf     = new double[cps.length];
+            this.entropyBuf  = new double[cps.length];
+            this.lambdaBuf   = new double[cps.length][numFeatures];
+            for (int i = 0; i < cps.length; i++) {
+                lossBuf[i]    = Double.NaN;
+                entropyBuf[i] = Double.NaN;
+                for (int j = 0; j < numFeatures; j++)
+                    lambdaBuf[i][j] = Double.NaN;
+            }
+        }
+
+        @Override
+        boolean terminationTest(double newLoss) {
+            int completed = iteration + 1;  // iteration=k in loop ⇒ iter k+1 done
+            while (cpIdx < checkpoints.length
+                   && checkpoints[cpIdx] <= completed) {
+                if (checkpoints[cpIdx] == completed) {
+                    lossBuf[cpIdx]    = newLoss;
+                    // FeaturedSpace.getEntropy() caches: reset the cache
+                    // to force a fresh recomputation at each checkpoint.
+                    // Sequential.run() itself only reads entropy at the
+                    // very end (via FeaturedSpace.describe(...)), so the
+                    // stale cached value is normally fine; for a
+                    // per-iteration trajectory we need the fresh value.
+                    X.entropy = -1.0;
+                    entropyBuf[cpIdx] = X.getEntropy();
+                    for (int j = 0; j < numFeatures; j++)
+                        lambdaBuf[cpIdx][j] = X.features[j].lambda;
+                }
+                cpIdx++;
+            }
+            return cpIdx >= checkpoints.length;  // stop once all captured
+        }
+    }
+
+    /**
+     * Runs the real Java Maxent optimizer and reports the trained state
+     * at each iteration in {@code checkpoints} (1-based, ascending).
+     *
+     * Returns a flat array laid out as
+     *   [loss_cp0, entropy_cp0, lam_0_cp0, ..., lam_{k-1}_cp0,
+     *    loss_cp1, entropy_cp1, lam_0_cp1, ..., lam_{k-1}_cp1,
+     *    ...]
+     * of length {@code checkpoints.length * (2 + numFeatures)}.
+     *
+     * Convergence-based early termination is suppressed so the trajectory
+     * is deterministic regardless of how flat the loss becomes — that
+     * lets Phase B compare the full lambda evolution, not just the
+     * (potentially short) portion before convergence cuts the Java run
+     * but not the C++ run (or vice versa).
+     *
+     * @param feat0          raw feature-0 vector (length n)
+     * @param feat1          raw feature-1 vector (length n)
+     * @param sampleIdx      0-based occurrence indices
+     * @param betaMultiplier regularization multiplier
+     * @param checkpoints    iteration numbers to snapshot (1-based)
+     */
+    public static double[] runTrajectoryFlat(double[] feat0, double[] feat1,
+                                             int[] sampleIdx,
+                                             double betaMultiplier,
+                                             int[] checkpoints) {
+        int[] cps = checkpoints.clone();
+        java.util.Arrays.sort(cps);
+        int maxIter = cps[cps.length - 1];
+
+        double[] v0 = prescale(feat0);
+        double[] v1 = prescale(feat1);
+
+        LinearFeature lf0 = new LinearFeature(new ScaledVec(v0, "bio1"), "bio1");
+        LinearFeature lf1 = new LinearFeature(new ScaledVec(v1, "bio2"), "bio2");
+        double autoBeta = interpolateLinearBeta(sampleIdx.length);
+        lf0.setBeta(autoBeta * betaMultiplier);
+        lf1.setBeta(autoBeta * betaMultiplier);
+
+        Sample[] samples = new Sample[sampleIdx.length];
+        for (int k = 0; k < sampleIdx.length; k++)
+            samples[k] = new Sample(sampleIdx[k], 0, 0, 0.0, 0.0, "sp1");
+
+        Params params = new Params();
+        params.setBetamultiplier(betaMultiplier);
+        params.setMaximumiterations(maxIter);
+        params.setConvergencethreshold(0.0);   // disable early-out
+        params.setAutofeature(false);
+        params.setLinear(true);
+        params.setQuadratic(false);
+        params.setProduct(false);
+        params.setThreshold(false);
+        params.setHinge(false);
+
+        FeaturedSpace        fsLocal = new FeaturedSpace(samples,
+                                         new Feature[] { lf0, lf1 }, params);
+        TrajectorySequential tseq    = new TrajectorySequential(
+                                         fsLocal, params, cps);
+        tseq.run();
+
+        int stride = 2 + tseq.numFeatures;
+        double[] out = new double[cps.length * stride];
+        for (int i = 0; i < cps.length; i++) {
+            int base        = i * stride;
+            out[base]       = tseq.lossBuf[i];
+            out[base + 1]   = tseq.entropyBuf[i];
+            for (int j = 0; j < tseq.numFeatures; j++)
+                out[base + 2 + j] = tseq.lambdaBuf[i][j];
+        }
+        return out;
+    }
+
+    /* ------------------------------------------------------------------
      * Private helpers.
      * ------------------------------------------------------------------ */
 
@@ -240,15 +373,18 @@ public class MaxentRefRunner {
     private static double ascXll, ascYll, ascCell;
 
     public static void main(String[] args) throws Exception {
-        if (args.length < 3) {
+        boolean miniMode = args.length > 0 && args[0].equals("--mini");
+        int     base     = miniMode ? 1 : 0;
+        int     minArgs  = base + 3;
+        if (args.length < minArgs) {
             System.err.println("Usage: density.MaxentRefRunner "
-                             + "bio1.asc bio2.asc occurrences.csv [outDir]");
+                             + "[--mini] bio1.asc bio2.asc occurrences.csv [outDir]");
             System.exit(2);
         }
-        String bio1Path = args[0];
-        String bio2Path = args[1];
-        String occPath  = args[2];
-        String outDir   = (args.length > 3) ? args[3] : ".";
+        String bio1Path  = args[base];
+        String bio2Path  = args[base + 1];
+        String occPath   = args[base + 2];
+        String outDir    = (args.length > base + 3) ? args[base + 3] : ".";
 
         double[][] g1   = readAsc(bio1Path);
         double[][] g2   = readAsc(bio2Path);
@@ -281,16 +417,43 @@ public class MaxentRefRunner {
             idx[k] = row * ncols + col;
         }
 
-        MaxentRefRunner run = new MaxentRefRunner(v1, v2, idx,
-                                                  1.0, 500, 1e-5);
-
         File od = new File(outDir);
         od.mkdirs();
+        int[] cps = new int[] { 1, 2, 3, 5, 10, 20, 50, 100, 200, 500 };
+
+        if (miniMode) {
+            // MaxentMini goodAlpha trajectory (same CSV schema as real Java).
+            int stride = 2 + 2;  // loss, entropy, lambda_0, lambda_1
+            double[] traj = new double[cps.length * stride];
+            for (int i = 0; i < cps.length; i++) {
+                double[] s = MaxentMini.trainNIterations(
+                    v1, v2, idx, 1.0, 0.001, cps[i]);
+                // trainNIterations returns [loss, entropy, lambda0, lambda1]
+                traj[i * stride]     = s[0];
+                traj[i * stride + 1] = s[1];
+                traj[i * stride + 2] = s[2];
+                traj[i * stride + 3] = s[3];
+            }
+            writeTrajectoryCsv(new File(od, "trajectory_mini.csv"),
+                               cps, traj, 2);
+            System.out.println("MaxentMiniTrajectory: wrote "
+                               + new File(od, "trajectory_mini.csv"));
+            return;
+        }
+
+        MaxentRefRunner run = new MaxentRefRunner(v1, v2, idx,
+                                                  1.0, 500, 1e-5);
         writeLambdasCsv(new File(od, "lambdas.csv"), run);
         writeDensityCsv(new File(od, "density.csv"),
                         run.getDensity(), run.getRaw(),
                         run.getCloglogJava());
         writeScalarsCsv(new File(od, "scalars.csv"), run);
+
+        // Phase B trajectory: per-iteration (loss, entropy, lambdas) at
+        // checkpoints 1, 2, 3, 5, 10, 20, 50, 100, 200, 500.
+        double[] traj = runTrajectoryFlat(v1, v2, idx, 1.0, cps);
+        writeTrajectoryCsv(new File(od, "trajectory_java.csv"),
+                           cps, traj, 2);
 
         System.out.println("MaxentRefRunner: golden outputs written to "
                            + od.getAbsolutePath());
@@ -414,6 +577,26 @@ public class MaxentRefRunner {
             pw.println("iterations,"                  + r.getIterations());
             pw.println("num_features,"                + r.getNumFeatures());
             pw.println("num_points,"                  + r.getNumPoints());
+        }
+    }
+
+    static void writeTrajectoryCsv(File f, int[] checkpoints,
+                                   double[] flat, int numFeatures)
+            throws IOException {
+        try (PrintWriter pw = new PrintWriter(new FileWriter(f))) {
+            pw.print("iteration,loss,entropy");
+            for (int j = 0; j < numFeatures; j++) pw.print(",lambda_" + j);
+            pw.println();
+            int stride = 2 + numFeatures;
+            for (int i = 0; i < checkpoints.length; i++) {
+                int base = i * stride;
+                pw.print(checkpoints[i]
+                         + "," + fmt(flat[base])
+                         + "," + fmt(flat[base + 1]));
+                for (int j = 0; j < numFeatures; j++)
+                    pw.print("," + fmt(flat[base + 2 + j]));
+                pw.println();
+            }
         }
     }
 

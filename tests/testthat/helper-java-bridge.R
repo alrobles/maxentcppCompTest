@@ -137,6 +137,43 @@ make_mock_fixture <- function() {
     )
 }
 
+# ---- Asymmetric fixture (Phase B) ------------------------------------------
+.parse_asc_path <- function(path) .parse_asc(path)
+
+.get_sample_indices_for <- function(occ, xll = 0, yll = 0, nrows = 10L,
+                                    ncols = 10L, cellsize = 1.0) {
+    vapply(seq_len(nrow(occ)), function(i) {
+        row_i <- floor((yll + nrows * cellsize - occ$lat[i]) / cellsize)
+        col_i <- floor((occ$lon[i] - xll) / cellsize)
+        row_i <- max(0L, min(as.integer(row_i), nrows - 1L))
+        col_i <- max(0L, min(as.integer(col_i), ncols - 1L))
+        as.integer(row_i * ncols + col_i)
+    }, integer(1L))
+}
+
+#' Build the Asymmetric Mock Fixture (Phase B)
+#'
+#' Occurrences clustered in the bottom-right quadrant of a 10x10 grid
+#' with bio1 shifted to values 10..37.  Sample means differ from
+#' background means after scaling, so both real Java Sequential,
+#' MaxentMini, and C++ featured_space::train() all produce non-trivial
+#' lambdas — making the Phase B optimizer-gap measurement non-degenerate.
+make_mock_fixture_asym <- function() {
+    paths <- maxentcppCompTest::mock_raster_paths_asym()
+    occ   <- maxentcppCompTest::mock_occurrences_asym()
+    list(
+        bio1_vec        = .parse_asc_path(paths["bio1"]),
+        bio2_vec        = .parse_asc_path(paths["bio2"]),
+        sample_indices  = .get_sample_indices_for(occ),
+        n               = 100L,
+        n_samples       = nrow(occ),
+        beta_multiplier = 1.0,
+        min_deviation   = 0.001,
+        max_iter        = 500L,
+        convergence     = 1e-5
+    )
+}
+
 # ---- C++ FeaturedSpace builder ---------------------------------------------
 
 #' Build and Optionally Train a C++ FeaturedSpace from the Mock Fixture

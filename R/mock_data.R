@@ -36,3 +36,33 @@ mock_occurrences <- function() {
                             package = "maxentcppCompTest")
     read.csv(csv_path, stringsAsFactors = FALSE)
 }
+
+#' Paths to the Asymmetric Mock Raster Files (Phase B)
+#'
+#' Returns the file system paths to the two bundled 10x10 asymmetric
+#' raster files in \code{extdata/asym/}.  Unlike the symmetric fixture
+#' returned by \code{mock_raster_paths()}, bio1 is a shifted gradient
+#' (values 10..37) and the occurrences cluster in the bottom-right
+#' quadrant, so sample means differ from background means after
+#' \code{(x-min)/(max-min)} scaling and the optimizer produces
+#' non-trivial lambdas.  Used by the Phase B optimizer-trajectory test.
+#'
+#' @return Named character vector with elements \code{bio1}, \code{bio2}.
+#' @export
+mock_raster_paths_asym <- function() {
+    extdata <- system.file("extdata", "asym", package = "maxentcppCompTest")
+    c(
+        bio1 = file.path(extdata, "bio1.asc"),
+        bio2 = file.path(extdata, "bio2.asc")
+    )
+}
+
+#' Load Asymmetric Mock Occurrence Records (Phase B)
+#'
+#' @return Data frame with \code{species}, \code{lon}, \code{lat}.
+#' @export
+mock_occurrences_asym <- function() {
+    csv_path <- system.file("extdata", "asym", "occurrences.csv",
+                            package = "maxentcppCompTest")
+    read.csv(csv_path, stringsAsFactors = FALSE)
+}
