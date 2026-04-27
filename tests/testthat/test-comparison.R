@@ -1,3 +1,4 @@
+library(testthat)
 test_that("compare_maxent_predictions returns correct structure", {
     set.seed(1)
     cpp_preds  <- runif(100)
@@ -83,3 +84,4 @@ test_that("full comparison workflow: maxentcpp vs Java maxent", {
                               "< 0.95"))
     expect_true(cmp$agreement)
 })
+
