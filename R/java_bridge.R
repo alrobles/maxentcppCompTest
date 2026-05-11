@@ -35,7 +35,7 @@ ensure_java_maxent <- function() {
             return(FALSE)
         }
 
-        message("maxent_mini.jar not found — attempting to compile MaxentMini.java ...")
+        message("maxent_mini.jar not found -- attempting to compile MaxentMini.java ...")
 
         ok <- tryCatch({
             if (file.exists(build_sh)) {
@@ -428,7 +428,7 @@ ensure_java_maxent_ref <- function() {
                     java_dir)
             return(FALSE)
         }
-        message("maxent_ref.jar not found — attempting to build ",
+        message("maxent_ref.jar not found -- attempting to build ",
                 "against alrobles/Maxent source tree ...")
         ok <- tryCatch({
             status <- system2("bash", args = build_sh,

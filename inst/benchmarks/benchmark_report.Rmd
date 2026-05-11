@@ -1,0 +1,309 @@
+---
+title: "maxentcpp Performance Benchmark Report"
+author: "maxentcppCompTest"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Overview
+
+This report benchmarks the training and prediction performance of
+**maxentcpp** (C++17 reimplementation) against **dismo** (Java Maxent
+via rJava) on the bundled mock fixtures.
+
+### Environment
+
+```{r env-info}
+cat("R version:", R.version.string, "\n")
+cat("Platform:", Sys.info()["sysname"], Sys.info()["machine"], "\n")
+cat("maxentcpp:", as.character(packageVersion("maxentcpp")), "\n")
+if (requireNamespace("dismo", quietly = TRUE))
+    cat("dismo:", as.character(packageVersion("dismo")), "\n")
+cat("Date:", format(Sys.time(), "%Y-%m-%d %H:%M %Z"), "\n")
+```
+
+## Data Preparation
+
+```{r data-prep}
+library(maxentcppCompTest)
+library(maxentcpp)
+library(microbenchmark)
+
+paths <- mock_raster_paths()
+occ   <- mock_occurrences()
+
+# maxentcpp data
+g1 <- maxent_read_asc(paths["bio1"])
+g2 <- maxent_read_asc(paths["bio2"])
+m1 <- maxent_grid_to_matrix(g1)
+m2 <- maxent_grid_to_matrix(g2)
+info <- maxent_grid_info(g1)
+
+bio1_vec <- as.numeric(t(m1))
+bio2_vec <- as.numeric(t(m2))
+n <- length(bio1_vec)
+
+occ_indices <- vapply(seq_len(nrow(occ)), function(i) {
+    row_i <- floor((info$yll + info$nrows * info$cellsize - occ$lat[i]) /
+                       info$cellsize)
+    col_i <- floor((occ$lon[i] - info$xll) / info$cellsize)
+    row_i <- max(0L, min(as.integer(row_i), info$nrows - 1L))
+    col_i <- max(0L, min(as.integer(col_i), info$ncols - 1L))
+    as.integer(row_i * info$ncols + col_i)
+}, integer(1L))
+
+cat(sprintf("Dataset: %d cells, %d variables, %d samples\n",
+            n, 2L, nrow(occ)))
+```
+
+```{r check-dismo}
+has_dismo <- requireNamespace("dismo", quietly = TRUE) &&
+    requireNamespace("rJava", quietly = TRUE) &&
+    requireNamespace("raster", quietly = TRUE)
+
+if (has_dismo) {
+    jar_path <- file.path(system.file(package = "dismo"), "java", "maxent.jar")
+    has_dismo <- file.exists(jar_path)
+}
+cat("dismo + Java available:", has_dismo, "\n")
+```
+
+## Training Benchmark
+
+### Symmetric Fixture (100 cells)
+
+```{r train-bench}
+bench_cpp_train <- function() {
+    f1 <- maxent_linear_feature(bio1_vec, "bio1")
+    f2 <- maxent_linear_feature(bio2_vec, "bio2")
+    fs <- maxent_featured_space(n, occ_indices, list(f1, f2))
+    maxent_fit(fs, max_iter = 500L, convergence = 1e-5,
+               beta_multiplier = 1.0)
+}
+
+n_reps <- 20L
+
+if (has_dismo) {
+    env_raster <- raster::stack(paths["bio1"], paths["bio2"])
+    occ_coords <- occ[, c("lon", "lat")]
+
+    # Warm up JVM
+    suppressMessages(try(
+        dismo::maxent(env_raster, occ_coords, silent = TRUE,
+                      args = c("nowarnings", "notooltips",
+                               "maximumiterations=10")),
+        silent = TRUE))
+
+    bench_dismo_train <- function() {
+        dismo::maxent(
+            env_raster, occ_coords, silent = TRUE,
+            args = c("nowarnings", "notooltips",
+                     "linear=true", "quadratic=false",
+                     "hinge=false", "threshold=false",
+                     "product=false",
+                     "maximumiterations=500",
+                     "convergencethreshold=1e-5",
+                     "betamultiplier=1.0"))
+    }
+
+    train_results <- microbenchmark(
+        maxentcpp = bench_cpp_train(),
+        dismo     = bench_dismo_train(),
+        times = n_reps, setup = gc(verbose = FALSE))
+} else {
+    train_results <- microbenchmark(
+        maxentcpp = bench_cpp_train(),
+        times = n_reps, setup = gc(verbose = FALSE))
+}
+
+print(train_results)
+```
+
+```{r train-summary}
+train_summary <- summary(train_results)
+train_summary$median_ms <- train_summary$median / 1e6
+train_summary$mean_ms   <- train_summary$mean / 1e6
+knitr::kable(train_summary[, c("expr", "median_ms", "mean_ms", "neval")],
+             digits = 2, caption = "Training time (ms)")
+```
+
+```{r train-plot, fig.width=7, fig.height=4}
+boxplot(train_results, unit = "ms", log = FALSE,
+        main = "Training Time Distribution",
+        ylab = "Time (ms)")
+```
+
+### Asymmetric Fixture (non-trivial lambdas)
+
+```{r train-asym}
+paths_asym <- mock_raster_paths_asym()
+occ_asym   <- mock_occurrences_asym()
+
+g1a <- maxent_read_asc(paths_asym["bio1"])
+g2a <- maxent_read_asc(paths_asym["bio2"])
+m1a <- maxent_grid_to_matrix(g1a)
+m2a <- maxent_grid_to_matrix(g2a)
+
+bio1_asym <- as.numeric(t(m1a))
+bio2_asym <- as.numeric(t(m2a))
+
+occ_indices_asym <- vapply(seq_len(nrow(occ_asym)), function(i) {
+    row_i <- floor((info$yll + info$nrows * info$cellsize -
+                        occ_asym$lat[i]) / info$cellsize)
+    col_i <- floor((occ_asym$lon[i] - info$xll) / info$cellsize)
+    row_i <- max(0L, min(as.integer(row_i), info$nrows - 1L))
+    col_i <- max(0L, min(as.integer(col_i), info$ncols - 1L))
+    as.integer(row_i * info$ncols + col_i)
+}, integer(1L))
+
+bench_cpp_train_asym <- function() {
+    f1 <- maxent_linear_feature(bio1_asym, "bio1")
+    f2 <- maxent_linear_feature(bio2_asym, "bio2")
+    fs <- maxent_featured_space(n, occ_indices_asym, list(f1, f2))
+    maxent_fit(fs, max_iter = 500L, convergence = 1e-5,
+               beta_multiplier = 1.0)
+}
+
+asym_results <- microbenchmark(
+    maxentcpp_asym = bench_cpp_train_asym(),
+    times = n_reps, setup = gc(verbose = FALSE))
+
+print(asym_results)
+```
+
+## Prediction Benchmark
+
+```{r predict-bench}
+# Train maxentcpp model for prediction
+f1 <- maxent_linear_feature(bio1_vec, "bio1")
+f2 <- maxent_linear_feature(bio2_vec, "bio2")
+fs <- maxent_featured_space(n, occ_indices, list(f1, f2))
+maxent_fit(fs, max_iter = 500L, convergence = 1e-5, beta_multiplier = 1.0)
+
+# Build feature matrix
+f1p <- maxent_linear_feature(bio1_vec, "bio1")
+f2p <- maxent_linear_feature(bio2_vec, "bio2")
+feat_mat <- cbind(
+    vapply(seq_len(n), function(i) maxent_feature_eval(f1p, i), numeric(1)),
+    vapply(seq_len(n), function(i) maxent_feature_eval(f2p, i), numeric(1)))
+
+bench_cpp_predict <- function() {
+    maxent_predict_model(fs, feat_mat)
+}
+
+if (has_dismo) {
+    dismo_model <- dismo::maxent(
+        env_raster, occ_coords, silent = TRUE,
+        args = c("nowarnings", "notooltips",
+                 "linear=true", "quadratic=false",
+                 "hinge=false", "threshold=false",
+                 "product=false",
+                 "maximumiterations=500",
+                 "convergencethreshold=1e-5",
+                 "betamultiplier=1.0"))
+
+    bench_dismo_predict <- function() {
+        dismo::predict(dismo_model, env_raster)
+    }
+
+    pred_results <- microbenchmark(
+        maxentcpp = bench_cpp_predict(),
+        dismo     = bench_dismo_predict(),
+        times = n_reps, setup = gc(verbose = FALSE))
+} else {
+    pred_results <- microbenchmark(
+        maxentcpp = bench_cpp_predict(),
+        times = n_reps, setup = gc(verbose = FALSE))
+}
+
+print(pred_results)
+```
+
+```{r predict-summary}
+pred_summary <- summary(pred_results)
+pred_summary$median_ms <- pred_summary$median / 1e6
+pred_summary$mean_ms   <- pred_summary$mean / 1e6
+knitr::kable(pred_summary[, c("expr", "median_ms", "mean_ms", "neval")],
+             digits = 2, caption = "Prediction time (ms)")
+```
+
+```{r predict-plot, fig.width=7, fig.height=4}
+boxplot(pred_results, unit = "ms", log = FALSE,
+        main = "Prediction Time Distribution",
+        ylab = "Time (ms)")
+```
+
+## Numerical Verification
+
+```{r numerical-verify}
+cpp_preds <- maxent_predict_model(fs, feat_mat)
+cat(sprintf("maxentcpp: min=%.6f, max=%.6f, mean=%.6f\n",
+            min(cpp_preds), max(cpp_preds), mean(cpp_preds)))
+
+if (has_dismo) {
+    dismo_preds <- as.numeric(raster::values(
+        dismo::predict(dismo_model, env_raster)))
+    cat(sprintf("dismo:     min=%.6f, max=%.6f, mean=%.6f\n",
+                min(dismo_preds, na.rm = TRUE),
+                max(dismo_preds, na.rm = TRUE),
+                mean(dismo_preds, na.rm = TRUE)))
+
+    cmp <- compare_maxent_predictions(cpp_preds, dismo_preds)
+    knitr::kable(data.frame(
+        Metric = c("Spearman rho", "Pearson r",
+                    "Max rank diff", "Agreement"),
+        Value  = c(sprintf("%.6f", cmp$spearman_cor),
+                   sprintf("%.6f", cmp$pearson_cor),
+                   sprintf("%.6f", cmp$max_abs_diff_rank),
+                   ifelse(cmp$agreement, "YES", "NO"))
+    ), caption = "Cross-implementation agreement")
+}
+```
+
+## Combined Results Table
+
+```{r combined-table}
+rows <- list()
+
+# Training
+ts <- summary(train_results)
+ts$median_ms <- ts$median / 1e6
+for (i in seq_len(nrow(ts))) {
+    rows[[length(rows) + 1]] <- data.frame(
+        Dataset = "Mock (100 cells)",
+        Phase   = "Train",
+        Impl    = as.character(ts$expr[i]),
+        Median_ms = ts$median_ms[i],
+        stringsAsFactors = FALSE)
+}
+
+# Prediction
+ps <- summary(pred_results)
+ps$median_ms <- ps$median / 1e6
+for (i in seq_len(nrow(ps))) {
+    rows[[length(rows) + 1]] <- data.frame(
+        Dataset = "Mock (100 cells)",
+        Phase   = "Predict",
+        Impl    = as.character(ps$expr[i]),
+        Median_ms = ps$median_ms[i],
+        stringsAsFactors = FALSE)
+}
+
+combined <- do.call(rbind, rows)
+knitr::kable(combined, digits = 2,
+             caption = "Combined benchmark results (median, ms)")
+```
+
+## Session Info
+
+```{r session-info}
+sessionInfo()
+```
